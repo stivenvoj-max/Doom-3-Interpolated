@@ -1,7 +1,7 @@
 /*
 ===========================================================================
 
-Doom 3 GPL Source Code
+Doom 3 GPL Source Code modified by Jacob Foley
 Copyright (C) 1999-2011 id Software LLC, a ZeniMax Media company.
 
 This file is part of the Doom 3 GPL Source Code ("Doom 3 Source Code").
@@ -127,6 +127,8 @@ int				time_gameFrame;
 int				time_gameDraw;
 int				time_frontend;			// renderSystem frontend time
 int				time_backend;			// renderSystem backend time
+
+float           com_frameAlpha = 0.0f; // Foley: Interp between tics
 
 int				com_frameTime;			// time (since start) for the current frame in milliseconds
 int				com_frameNumber;		// variable frame number
@@ -2515,6 +2517,10 @@ void idCommonLocal::Frame( void ) {
 		D3::ImGuiHooks::NewFrame();
 
 		Com_UpdateFrameTime(); // DG: put updating com_frameTime into a function
+        
+        // Foley: interpolation equation
+        com_frameAlpha = idMath::ClampFloat(0.0f, 1.0f,
+            ((float)Sys_MillisecondsPrecise() - (nextTicTime - com_preciseFrameLengthMS)) / com_preciseFrameLengthMS);
 
 		idAsyncNetwork::RunFrame();
 

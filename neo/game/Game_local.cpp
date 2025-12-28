@@ -61,6 +61,8 @@ const float	DEFAULT_GRAVITY			= 1066.0f;
 const idVec3	DEFAULT_GRAVITY_VEC3( 0, 0, -DEFAULT_GRAVITY );
 const int	CINEMATIC_SKIP_DELAY	= SEC2MS( 2.0f );
 
+float com_frameAlpha = 0.0f; // Foley: for interpolation
+
 #ifdef GAME_DLL
 
 idSys *						sys = NULL;
@@ -2435,6 +2437,39 @@ gameReturn_t idGameLocal::RunFrame( const usercmd_t *clientCmds ) {
 	return ret;
 }
 
+/*
+============
+idGameLocal::SavePreviousEntityStates  Foley
+============
+*/
+void idGameLocal::SavePreviousEntityStates() {
+    // Loop through ALL possible entity slots in the game world
+    for ( int i = 0; i < MAX_GENTITIES; i++ ) {
+        
+        // Get the entity at this slot
+        idEntity* ent = entities[ i ];
+        
+        // SAFETY CHECK 1: Skip if this slot is empty or invalid
+        if ( !ent || ent->entityNumber != i ) {
+            continue;  // Next entity
+        }
+        
+        // SAFETY CHECK 2: Skip entities that shouldn't interpolate
+        if ( ent->fl.noInterpolate ) {
+            continue;  // Next entity
+        }
+        
+        // CORE WORK: Copy current physics state to "previous" state
+        ent->prevOrigin = ent->GetPhysics()->GetOrigin();    // Save position
+        ent->prevAxis   = ent->GetPhysics()->GetAxis();      // Save orientation
+        
+        // Optional: Could save other things later if needed
+        // ent->prevAngles = ent->GetPhysics()->GetAngles();
+        // ent->prevBounds = ent->GetPhysics()->GetBounds();
+    }
+    
+    // Optional debug: common->Printf("Foley: Saved %d entities\n", savedCount);
+}
 
 /*
 ======================================================================

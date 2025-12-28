@@ -2647,219 +2647,223 @@ idSessionLocal::Frame
 extern bool CheckOpenALDeviceAndRecoverIfNeeded();
 extern int g_screenshotFormat;
 void idSessionLocal::Frame() {
-	D3P_ScopedCPUSample(Session_Frame);
-
-	if ( com_asyncSound.GetInteger() == 0 ) {
-		soundSystem->AsyncUpdateWrite( Sys_Milliseconds() );
-	}
-
-	// DG: periodically check if sound device is still there and try to reset it if not
-	//     (calling this from idSoundSystem::AsyncUpdate(), which runs in a separate thread
-	//      by default, causes a deadlock when calling idCommon->Warning())
-	CheckOpenALDeviceAndRecoverIfNeeded();
-
-	// Editors that completely take over the game
-	if ( com_editorActive && ( com_editors & ( EDITOR_RADIANT | EDITOR_GUI ) ) ) {
-		return;
-	}
-
+    D3P_ScopedCPUSample(Session_Frame);
+    
+    if ( com_asyncSound.GetInteger() == 0 ) {
+        soundSystem->AsyncUpdateWrite( Sys_Milliseconds() );
+    }
+    
+    // DG: periodically check if sound device is still there and try to reset it if not
+    //     (calling this from idSoundSystem::AsyncUpdate(), which runs in a separate thread
+    //      by default, causes a deadlock when calling idCommon->Warning())
+    CheckOpenALDeviceAndRecoverIfNeeded();
+    
+    // Editors that completely take over the game
+    if ( com_editorActive && ( com_editors & ( EDITOR_RADIANT | EDITOR_GUI ) ) ) {
+        return;
+    }
+    
 #if 0 // handled via Sys_GenerateEvents() -> handleMouseGrab()
-	// if the console is down, we don't need to hold
-	// the mouse cursor
-	if ( console->Active() || com_editorActive ) {
-		Sys_GrabMouseCursor( false );
-	} else {
-		Sys_GrabMouseCursor( true );
-	}
+    // if the console is down, we don't need to hold
+    // the mouse cursor
+    if ( console->Active() || com_editorActive ) {
+        Sys_GrabMouseCursor( false );
+    } else {
+        Sys_GrabMouseCursor( true );
+    }
 #endif
-
-	// save the screenshot and audio from the last draw if needed
-	if ( aviCaptureMode ) {
-		idStr	name;
-
-		name = va("demos/%s/%s_%05i.tga", aviDemoShortName.c_str(), aviDemoShortName.c_str(), aviTicStart );
-
-		float ratio = 30.0f / ( 1000.0f / USERCMD_MSEC / com_aviDemoTics.GetInteger() );
-		aviDemoFrameCount += ratio;
-		if ( aviTicStart + 1 != ( int )aviDemoFrameCount ) {
-			// skipped frames so write them out
-			int c = aviDemoFrameCount - aviTicStart;
-			while ( c-- ) {
-				g_screenshotFormat = 0;
-				renderSystem->TakeScreenshot( com_aviDemoWidth.GetInteger(), com_aviDemoHeight.GetInteger(), name, com_aviDemoSamples.GetInteger(), NULL );
-				name = va("demos/%s/%s_%05i.tga", aviDemoShortName.c_str(), aviDemoShortName.c_str(), ++aviTicStart );
-			}
-		}
-		aviTicStart = aviDemoFrameCount;
-
-		// remove any printed lines at the top before taking the screenshot
-		console->ClearNotifyLines();
-
-		// this will call Draw, possibly multiple times if com_aviDemoSamples is > 1
-		g_screenshotFormat = 0;
-		renderSystem->TakeScreenshot( com_aviDemoWidth.GetInteger(), com_aviDemoHeight.GetInteger(), name, com_aviDemoSamples.GetInteger(), NULL );
-	}
-
-	// at startup, we may be backwards
-	if ( latchedTicNumber > com_ticNumber ) {
-		latchedTicNumber = com_ticNumber;
-	}
-
-	// se how many tics we should have before continuing
-	int	minTic = latchedTicNumber + 1;
-	if ( com_minTics.GetInteger() > 1 ) {
-		minTic = lastGameTic + com_minTics.GetInteger();
-	}
-
-	if ( readDemo ) {
-		if ( !timeDemo && numDemoFrames != 1 ) {
-			minTic = lastDemoTic + USERCMD_PER_DEMO_FRAME;
-		} else {
-			// timedemos and demoshots will run as fast as they can, other demos
-			// will not run more than 30 hz
-			minTic = latchedTicNumber;
-		}
-	} else if ( writeDemo ) {
-		minTic = lastGameTic + USERCMD_PER_DEMO_FRAME;		// demos are recorded at 30 hz
-	}
-
-	// fixedTic lets us run a forced number of usercmd each frame without timing
-	if ( com_fixedTic.GetInteger() ) {
-		minTic = latchedTicNumber;
-	}
-
-	while( 1 ) {
-		latchedTicNumber = com_ticNumber;
-		if ( latchedTicNumber >= minTic ) {
-			break;
-		}
-		D3P_ScopedCPUSample(WaitForNextFrameTime);
-		Com_WaitForNextTicStart();
-	}
-
-	if ( authEmitTimeout ) {
-		// waiting for a game auth
-		if ( Sys_Milliseconds() > authEmitTimeout ) {
-			// expired with no reply
-			// means that if a firewall is blocking the master, we will let through
-			common->DPrintf( "no reply from auth\n" );
-			if ( authWaitBox ) {
-				// close the wait box
-				StopBox();
-				authWaitBox = false;
-			}
-			if ( cdkey_state == CDKEY_CHECKING ) {
-				cdkey_state = CDKEY_OK;
-			}
-			if ( xpkey_state == CDKEY_CHECKING ) {
-				xpkey_state = CDKEY_OK;
-			}
-			// maintain this empty as it's set by auth denials
-			authMsg.Empty();
-			authEmitTimeout = 0;
-			SetCDKeyGuiVars();
-		}
-	}
-
-	// send frame and mouse events to active guis
-	GuiFrameEvents();
-
-	// advance demos
-	if ( readDemo ) {
-		AdvanceRenderDemo( false );
-		return;
-	}
-
-	//------------ single player game tics --------------
-
-	if ( !mapSpawned || guiActive ) {
-		// early exit, won't do RunGameTic .. but still need to update mouse position for GUIs
-		usercmdGen->GetDirectUsercmd();
-	}
-
-	if ( !mapSpawned ) {
-		return;
-	}
-
-	if ( guiActive ) {
-		lastGameTic = latchedTicNumber;
-		return;
-	}
-
-	// in message box / GUIFrame, idSessionLocal::Frame is used for GUI interactivity
-	// but we early exit to avoid running game frames
-	if ( idAsyncNetwork::IsActive() ) {
-		return;
-	}
-
-	// check for user info changes
-	if ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) {
-		mapSpawnData.userInfo[0] = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
-		game->SetUserInfo( 0, mapSpawnData.userInfo[0], false, false );
-		cvarSystem->ClearModifiedFlags( CVAR_USERINFO );
-	}
-
-	// see how many usercmds we are going to run
-	int	numCmdsToRun = latchedTicNumber - lastGameTic;
-
-	// don't let a long onDemand sound load unsync everything
-	if ( timeHitch ) {
-		int	skip = timeHitch / USERCMD_MSEC;
-		lastGameTic += skip;
-		numCmdsToRun -= skip;
-		timeHitch = 0;
-	}
-
-	// don't get too far behind after a hitch
-	if ( numCmdsToRun > 10 ) {
-		lastGameTic = latchedTicNumber - 10;
-	}
-
-	// never use more than USERCMD_PER_DEMO_FRAME,
-	// which makes it go into slow motion when recording
-	if ( writeDemo ) {
-		int fixedTic = USERCMD_PER_DEMO_FRAME;
-		// we should have waited long enough
-		if ( numCmdsToRun < fixedTic ) {
-			common->Error( "idSessionLocal::Frame: numCmdsToRun < fixedTic" );
-		}
-		// we may need to dump older commands
-		lastGameTic = latchedTicNumber - fixedTic;
-	} else if ( com_fixedTic.GetInteger() > 0 ) {
-		// this may cause commands run in a previous frame to
-		// be run again if we are going at above the real time rate
-		lastGameTic = latchedTicNumber - com_fixedTic.GetInteger();
-	} else if (	aviCaptureMode ) {
-		lastGameTic = latchedTicNumber - com_aviDemoTics.GetInteger();
-	}
-
-	// force only one game frame update this frame.  the game code requests this after skipping cinematics
-	// so we come back immediately after the cinematic is done instead of a few frames later which can
-	// cause sounds played right after the cinematic to not play.
-	if ( syncNextGameFrame ) {
-		lastGameTic = latchedTicNumber - 1;
-		syncNextGameFrame = false;
-	}
-
-	// create client commands, which will be sent directly
-	// to the game
-	if ( com_showTics.GetBool() ) {
-		common->Printf( "%i ", latchedTicNumber - lastGameTic );
-	}
-
-	int	gameTicsToRun = latchedTicNumber - lastGameTic;
-	int i;
-	for ( i = 0 ; i < gameTicsToRun ; i++ ) {
-		RunGameTic();
-		if ( !mapSpawned ) {
-			// exited game play
-			break;
-		}
-		if ( syncNextGameFrame ) {
-			// long game frame, so break out and continue executing as if there was no hitch
-			break;
-		}
-	}
+    
+    // save the screenshot and audio from the last draw if needed
+    if ( aviCaptureMode ) {
+        idStr	name;
+        
+        name = va("demos/%s/%s_%05i.tga", aviDemoShortName.c_str(), aviDemoShortName.c_str(), aviTicStart );
+        
+        float ratio = 30.0f / ( 1000.0f / USERCMD_MSEC / com_aviDemoTics.GetInteger() );
+        aviDemoFrameCount += ratio;
+        if ( aviTicStart + 1 != ( int )aviDemoFrameCount ) {
+            // skipped frames so write them out
+            int c = aviDemoFrameCount - aviTicStart;
+            while ( c-- ) {
+                g_screenshotFormat = 0;
+                renderSystem->TakeScreenshot( com_aviDemoWidth.GetInteger(), com_aviDemoHeight.GetInteger(), name, com_aviDemoSamples.GetInteger(), NULL );
+                name = va("demos/%s/%s_%05i.tga", aviDemoShortName.c_str(), aviDemoShortName.c_str(), ++aviTicStart );
+            }
+        }
+        aviTicStart = aviDemoFrameCount;
+        
+        // remove any printed lines at the top before taking the screenshot
+        console->ClearNotifyLines();
+        
+        // this will call Draw, possibly multiple times if com_aviDemoSamples is > 1
+        g_screenshotFormat = 0;
+        renderSystem->TakeScreenshot( com_aviDemoWidth.GetInteger(), com_aviDemoHeight.GetInteger(), name, com_aviDemoSamples.GetInteger(), NULL );
+    }
+    
+    // at startup, we may be backwards
+    if ( latchedTicNumber > com_ticNumber ) {
+        latchedTicNumber = com_ticNumber;
+    }
+    
+    // se how many tics we should have before continuing
+    int	minTic = latchedTicNumber + 1;
+    if ( com_minTics.GetInteger() > 1 ) {
+        minTic = lastGameTic + com_minTics.GetInteger();
+    }
+    
+    if ( readDemo ) {
+        if ( !timeDemo && numDemoFrames != 1 ) {
+            minTic = lastDemoTic + USERCMD_PER_DEMO_FRAME;
+        } else {
+            // timedemos and demoshots will run as fast as they can, other demos
+            // will not run more than 30 hz
+            minTic = latchedTicNumber;
+        }
+    } else if ( writeDemo ) {
+        minTic = lastGameTic + USERCMD_PER_DEMO_FRAME;		// demos are recorded at 30 hz
+    }
+    
+    // fixedTic lets us run a forced number of usercmd each frame without timing
+    if ( com_fixedTic.GetInteger() ) {
+        minTic = latchedTicNumber;
+    }
+    
+    while( 1 ) {
+        latchedTicNumber = com_ticNumber;
+        if ( latchedTicNumber >= minTic ) {
+            break;
+        }
+        D3P_ScopedCPUSample(WaitForNextFrameTime);
+        Com_WaitForNextTicStart();
+    }
+    
+    if ( authEmitTimeout ) {
+        // waiting for a game auth
+        if ( Sys_Milliseconds() > authEmitTimeout ) {
+            // expired with no reply
+            // means that if a firewall is blocking the master, we will let through
+            common->DPrintf( "no reply from auth\n" );
+            if ( authWaitBox ) {
+                // close the wait box
+                StopBox();
+                authWaitBox = false;
+            }
+            if ( cdkey_state == CDKEY_CHECKING ) {
+                cdkey_state = CDKEY_OK;
+            }
+            if ( xpkey_state == CDKEY_CHECKING ) {
+                xpkey_state = CDKEY_OK;
+            }
+            // maintain this empty as it's set by auth denials
+            authMsg.Empty();
+            authEmitTimeout = 0;
+            SetCDKeyGuiVars();
+        }
+    }
+    
+    // send frame and mouse events to active guis
+    GuiFrameEvents();
+    
+    // advance demos
+    if ( readDemo ) {
+        AdvanceRenderDemo( false );
+        return;
+    }
+    
+    //------------ single player game tics --------------
+    
+    if ( !mapSpawned || guiActive ) {
+        // early exit, won't do RunGameTic .. but still need to update mouse position for GUIs
+        usercmdGen->GetDirectUsercmd();
+    }
+    
+    if ( !mapSpawned ) {
+        return;
+    }
+    
+    if ( guiActive ) {
+        lastGameTic = latchedTicNumber;
+        return;
+    }
+    
+    // in message box / GUIFrame, idSessionLocal::Frame is used for GUI interactivity
+    // but we early exit to avoid running game frames
+    if ( idAsyncNetwork::IsActive() ) {
+        return;
+    }
+    
+    // check for user info changes
+    if ( cvarSystem->GetModifiedFlags() & CVAR_USERINFO ) {
+        mapSpawnData.userInfo[0] = *cvarSystem->MoveCVarsToDict( CVAR_USERINFO );
+        game->SetUserInfo( 0, mapSpawnData.userInfo[0], false, false );
+        cvarSystem->ClearModifiedFlags( CVAR_USERINFO );
+    }
+    
+    // see how many usercmds we are going to run
+    int	numCmdsToRun = latchedTicNumber - lastGameTic;
+    
+    // don't let a long onDemand sound load unsync everything
+    if ( timeHitch ) {
+        int	skip = timeHitch / USERCMD_MSEC;
+        lastGameTic += skip;
+        numCmdsToRun -= skip;
+        timeHitch = 0;
+    }
+    
+    // don't get too far behind after a hitch
+    if ( numCmdsToRun > 10 ) {
+        lastGameTic = latchedTicNumber - 10;
+    }
+    
+    // never use more than USERCMD_PER_DEMO_FRAME,
+    // which makes it go into slow motion when recording
+    if ( writeDemo ) {
+        int fixedTic = USERCMD_PER_DEMO_FRAME;
+        // we should have waited long enough
+        if ( numCmdsToRun < fixedTic ) {
+            common->Error( "idSessionLocal::Frame: numCmdsToRun < fixedTic" );
+        }
+        // we may need to dump older commands
+        lastGameTic = latchedTicNumber - fixedTic;
+    } else if ( com_fixedTic.GetInteger() > 0 ) {
+        // this may cause commands run in a previous frame to
+        // be run again if we are going at above the real time rate
+        lastGameTic = latchedTicNumber - com_fixedTic.GetInteger();
+    } else if (	aviCaptureMode ) {
+        lastGameTic = latchedTicNumber - com_aviDemoTics.GetInteger();
+    }
+    
+    // force only one game frame update this frame.  the game code requests this after skipping cinematics
+    // so we come back immediately after the cinematic is done instead of a few frames later which can
+    // cause sounds played right after the cinematic to not play.
+    if ( syncNextGameFrame ) {
+        lastGameTic = latchedTicNumber - 1;
+        syncNextGameFrame = false;
+    }
+    
+    // create client commands, which will be sent directly
+    // to the game
+    if ( com_showTics.GetBool() ) {
+        common->Printf( "%i ", latchedTicNumber - lastGameTic );
+    }
+    
+    int    gameTicsToRun = latchedTicNumber - lastGameTic;
+    int i;
+    for ( i = 0 ; i < gameTicsToRun ; i++ ) {
+        RunGameTic();
+        if ( !mapSpawned ) {
+            // exited game play
+            break;
+        }
+        if ( syncNextGameFrame ) {
+            // long game frame, so break out and continue executing as if there was no hitch
+            break;
+        }
+    }
+    // Foley: Save previous entity states after all tics
+    if ( mapSpawned && !guiActive ) {
+        game->SavePreviousEntityStates();
+    }
 }
 
 /*

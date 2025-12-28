@@ -430,6 +430,10 @@ idEntity::idEntity() {
 	memset( &fl, 0, sizeof( fl ) );
 	fl.neverDormant	= true;			// most entities never go dormant
 
+    prevOrigin.Zero(); // Foley: Initialize interpolation members
+    prevAxis.Identity();
+    fl.noInterpolate = false;
+    
 	memset( &renderEntity, 0, sizeof( renderEntity ) );
 	modelDefHandle	= -1;
 	memset( &refSound, 0, sizeof( refSound ) );
@@ -1191,21 +1195,47 @@ void idEntity::Show( void ) {
 /*
 ================
 idEntity::UpdateModelTransform
+Foley: Added render interpolation for smooth movement at high FPS
 ================
 */
 void idEntity::UpdateModelTransform( void ) {
-	idVec3 origin;
-	idMat3 axis;
+    idVec3 visualOffset;
+    idMat3 visualAxis;
 
-	if ( GetPhysicsToVisualTransform( origin, axis ) ) {
-		renderEntity.axis = axis * GetPhysics()->GetAxis();
-		renderEntity.origin = GetPhysics()->GetOrigin() + origin * renderEntity.axis;
-	} else {
-		renderEntity.axis = GetPhysics()->GetAxis();
-		renderEntity.origin = GetPhysics()->GetOrigin();
-	}
+    if ( GetPhysicsToVisualTransform( visualOffset, visualAxis ) ) {
+        if ( fl.noInterpolate ) {
+            renderEntity.axis   = visualAxis * GetPhysics()->GetAxis();
+            renderEntity.origin = GetPhysics()->GetOrigin() + visualOffset * renderEntity.axis;
+        } else {
+            idVec3 currentOrigin = GetPhysics()->GetOrigin();
+            idVec3 interpOrigin = prevOrigin + com_frameAlpha * ( currentOrigin - prevOrigin );
+
+            idQuat prevQuat = prevAxis.ToQuat();
+            idQuat currentQuat = GetPhysics()->GetAxis().ToQuat();
+
+            idQuat interpQuat;
+            interpQuat.Slerp( prevQuat, currentQuat, com_frameAlpha );
+            idMat3 interpAxis = interpQuat.ToMat3();
+
+            renderEntity.axis   = visualAxis * interpAxis;
+            renderEntity.origin = interpOrigin + visualOffset * renderEntity.axis;
+        }
+    } else {
+        if ( fl.noInterpolate ) {
+            renderEntity.origin = GetPhysics()->GetOrigin();
+            renderEntity.axis   = GetPhysics()->GetAxis();
+        } else {
+            renderEntity.origin = prevOrigin + com_frameAlpha * ( GetPhysics()->GetOrigin() - prevOrigin );
+
+            idQuat prevQuat = prevAxis.ToQuat();
+            idQuat currentQuat = GetPhysics()->GetAxis().ToQuat();
+
+            idQuat interpQuat;
+            interpQuat.Slerp( prevQuat, currentQuat, com_frameAlpha );
+            renderEntity.axis = interpQuat.ToMat3();
+        }
+    }
 }
-
 /*
 ================
 idEntity::UpdateModel
