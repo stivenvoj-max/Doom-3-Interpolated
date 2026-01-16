@@ -8,26 +8,44 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # Step 1: Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Step 2: Create build folder
       - name: Create build directory
         run: mkdir build
 
+      # Step 3: Download SDL2 dev files
+      - name: Download SDL2
+        run: |
+          Invoke-WebRequest -Uri https://github.com/libsdl-org/SDL/releases/download/release-2.26.5/SDL2-devel-2.26.5-VC.zip -OutFile SDL2.zip
+          Expand-Archive SDL2.zip -DestinationPath SDL2
+
+      # Step 4: Configure CMake
       - name: Configure
         working-directory: build
         run: cmake -G "Visual Studio 17 2022" -A x64 `
           -DOPENAL_LIBRARY="C:/Windows/System32/OpenAL32.dll" `
           -DOPENAL_INCLUDE_DIR="C:/Windows/System32" `
-          -DSDL2_LIBRARY="C:/Windows/System32/SDL2.dll" `
-          -DSDL2_INCLUDE_DIR="C:/Windows/System32" ../neo
+          -DSDL2_LIBRARY="${{ github.workspace }}\SDL2\SDL2-2.26.5\lib\x64\SDL2.lib" `
+          -DSDL2_INCLUDE_DIR="${{ github.workspace }}\SDL2\SDL2-2.26.5\include" ../neo
 
+      # Step 5: Build the project
       - name: Build
         working-directory: build
         run: cmake --build . --config Release
 
+      # Step 6: Collect only the exe + dlls for upload
+      - name: Prepare artifact
+        run: |
+          mkdir ../artifact
+          copy build\Release\*.exe ../artifact
+          copy build\Release\*.dll ../artifact
+
+      # Step 7: Upload artifact
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: doom3-interpolated-windows
-          path: build/Release/
+          path: ../artifact/
