@@ -1,8 +1,7 @@
 name: Testbuild for x86 and x86_64 Windows
 run-name: testbuild_windows
-
 on:
-  workflow_dispatch:   # allows manual runs
+  workflow_dispatch:   # <- allows manual runs
   push:
     branches:
       - 'master'
@@ -11,11 +10,10 @@ on:
       - edited
       - opened
       - synchronize
-
 concurrency:
+  # Cancel concurrent workflows for the same PR or commit hash.
   group: ${{github.workflow}}-${{github.event_name == 'pull_request' && github.head_ref || github.sha}}
   cancel-in-progress: true
-
 jobs:
   build_win_x86_msvc:
     runs-on: windows-latest
@@ -28,17 +26,14 @@ jobs:
       - name: Install build dependencies
         run: |
           cd ..
-          curl -L -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
+          curl -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
           unzip dhewm3libs.zip "dhewm3-libs-master/i686-w64-mingw32/**" -x "dhewm3-libs-master/i686-w64-mingw32/share/**"
-
       - name: Check out repository code
         uses: actions/checkout@v4
-
       - name: Build
         run: |
           cmake -A Win32 -DDHEWM3LIBS="../dhewm3-libs-master/i686-w64-mingw32/" -DDEDICATED=ON -DTOOLS=ON -S neo/ -B build
           time cmake --build build/ --config RelWithDebInfo
-
       - name: Create testbuild package
         run: |
           export PKGDIR="dhewm3-win32-$(git rev-parse --short HEAD)"
@@ -61,14 +56,12 @@ jobs:
           cd ../dhewm3-libs-master/i686-w64-mingw32/bin/
           cp OpenAL32.dll SDL2.dll libcurl-4.dll ../../../dhewm3/publish/$PKGDIR/
           cd -
-
       - name: Upload testbuild package
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.pkgname }}
           path: publish/
           if-no-files-found: error
-
       - name: Upload testbuild debug symbols
         uses: actions/upload-artifact@v4
         with:
@@ -87,17 +80,14 @@ jobs:
       - name: Install build dependencies
         run: |
           cd ..
-          curl -L -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
+          curl -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
           unzip dhewm3libs.zip "dhewm3-libs-master/x86_64-w64-mingw32/**" -x "dhewm3-libs-master/x86_64-w64-mingw32/share/**"
-
       - name: Check out repository code
         uses: actions/checkout@v4
-
       - name: Build
         run: |
           cmake -A x64 -DDHEWM3LIBS="../dhewm3-libs-master/x86_64-w64-mingw32/" -DDEDICATED=ON -DTOOLS=ON -S neo/ -B build
           time cmake --build build/ --config RelWithDebInfo
-
       - name: Create testbuild package
         run: |
           export PKGDIR="dhewm3-win64-$(git rev-parse --short HEAD)"
@@ -112,7 +102,7 @@ jobs:
           cp base/gamepad.cfg publish/$PKGDIR/base/
           cp base/gamepad-d3xp.cfg publish/$PKGDIR/d3xp/
           cp COPYING.txt publish/$PKGDIR/
-          echo "dhewm3 for 64bit (x86_64) Windows, built $(date)" > publish/$PKGDIR/README.txt
+          echo "dhewm3 for 64bit (amd64 aka x86_64 aka x64) Windows, built $(date)" > publish/$PKGDIR/README.txt
           echo -e "from ${{ github.ref_name }} commit ${{ github.sha }}\n" >> publish/$PKGDIR/README.txt
           cat README.md >> publish/$PKGDIR/README.txt
           cp Changelog.md publish/$PKGDIR/Changelog.txt
@@ -120,14 +110,12 @@ jobs:
           cd ../dhewm3-libs-master/x86_64-w64-mingw32/bin/
           cp OpenAL32.dll SDL2.dll libcurl-4.dll ../../../dhewm3/publish/$PKGDIR/
           cd -
-
       - name: Upload testbuild package
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.pkgname }}
           path: publish/
           if-no-files-found: error
-
       - name: Upload testbuild debug symbols
         uses: actions/upload-artifact@v4
         with:
