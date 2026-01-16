@@ -1,51 +1,57 @@
-name: Build Doom 3 Interpolated (Windows)
+name: Build Doom 3 Neo
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  build-win:
+  build:
     runs-on: windows-latest
 
     steps:
-      # Step 1: Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Create build folder
-      - name: Create build directory
+      # -------------------------
+      # Install dependencies
+      # -------------------------
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+
+      - name: Install SDL2 and OpenAL via vcpkg
+        run: |
+          C:\vcpkg\vcpkg install sdl2:x64-windows openal-soft:x64-windows
+        shell: cmd
+
+      - name: Set environment variables
+        run: |
+          set VCPKG_ROOT=C:\vcpkg
+          set PATH=%VCPKG_ROOT%\installed\x64-windows\bin;%PATH%
+        shell: cmd
+
+      # -------------------------
+      # Configure and build
+      # -------------------------
+      - name: Create build folder
         run: mkdir build
 
-      # Step 3: Download SDL2 dev files
-      - name: Download SDL2
-        run: |
-          Invoke-WebRequest -Uri https://github.com/libsdl-org/SDL/releases/download/release-2.26.5/SDL2-devel-2.26.5-VC.zip -OutFile SDL2.zip
-          Expand-Archive SDL2.zip -DestinationPath SDL2
+      - name: Configure CMake
+        run: cmake -S neo -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+        shell: cmd
 
-      # Step 4: Configure CMake
-      - name: Configure
-        working-directory: build
-        run: cmake -G "Visual Studio 17 2022" -A x64 `
-          -DOPENAL_LIBRARY="C:/Windows/System32/OpenAL32.dll" `
-          -DOPENAL_INCLUDE_DIR="C:/Windows/System32" `
-          -DSDL2_LIBRARY="${{ github.workspace }}\SDL2\SDL2-2.26.5\lib\x64\SDL2.lib" `
-          -DSDL2_INCLUDE_DIR="${{ github.workspace }}\SDL2\SDL2-2.26.5\include" ../neo
+      - name: Build project
+        run: cmake --build build --config Release
+        shell: cmd
 
-      # Step 5: Build the project
-      - name: Build
-        working-directory: build
-        run: cmake --build . --config Release
-
-      # Step 6: Collect only the exe + dlls for upload
-      - name: Prepare artifact
-        run: |
-          mkdir ../artifact
-          copy build\Release\*.exe ../artifact
-          copy build\Release\*.dll ../artifact
-
-      # Step 7: Upload artifact
+      # -------------------------
+      # Package build artifacts
+      # -------------------------
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: doom3-interpolated-windows
-          path: ../artifact/
+          name: doom3-neo-build
+          path: build/Release
