@@ -9,24 +9,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install CMake
-        uses: lukka/get-cmake@v3
+        uses: actions/checkout@v4
 
       - name: Create build directory
         run: mkdir build
 
       - name: Configure
         working-directory: build
-        run: cmake ../neo
+        run: cmake -G "Visual Studio 17 2022" ../neo
 
       - name: Build
         working-directory: build
         run: cmake --build . --config Release
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: doom3-interpolated-windows
           path: build/
