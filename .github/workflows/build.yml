@@ -10,7 +10,6 @@ on:
       - opened
       - synchronize
 concurrency:
-  # Cancel concurrent workflows for the same PR or commit hash.
   group: ${{github.workflow}}-${{github.event_name == 'pull_request' && github.head_ref || github.sha}}
   cancel-in-progress: true
 jobs:
@@ -18,49 +17,42 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        # use git bash for for all steps (unless specified otherwise per step)
         shell: bash
-    strategy:
-      fail-fast: false
     steps:
     - name: Install build dependencies
       run: |
-        # Download and extract dhewm3-libs
-        #echo $PWD # /d/a/dhewm3/dhewm3
-        # as the repo will be cloned into the directory we're currently in (O_o)
-        # go one directory up to D:\a\dhewm3\ and put the dhewm3libs there
         cd ..
-        # https://github.com/dhewm/dhewm3-libs/archive/refs/heads/master.zip
-        # for some reason the following downloads an empty file, so use the other URL I got from
-        # "Copy Download Link" in Firefox (after downloading the file there) instead
-        #curl -o dhewm3libs.zip https://github.com/dhewm/dhewm3-libs/archive/refs/heads/master.zip
-        curl -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
-        # only unpack the stuff needed (no x86_64 stuff, no docs from share/)
+        curl -L -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
         unzip dhewm3libs.zip "dhewm3-libs-master/i686-w64-mingw32/**" -x "dhewm3-libs-master/i686-w64-mingw32/share/**"
+
+        # Download and extract OpenAL SDK
+        curl -L -o OpenALSDK.zip https://openal.org/downloads/OpenAL11SDK.zip
+        unzip OpenALSDK.zip -d OpenAL-SDK
+
     - name: Check out repository code
       uses: actions/checkout@v4
+
     - name: Build
       run: |
-        # build with cmake and visual studio
-        #echo $PWD # /d/a/dhewm3/dhewm3
-        # NOTE: not setting -G "Visual Studio 17 2022" so it just uses the default VS version it can find
-        cmake -A Win32 -DDHEWM3LIBS="../dhewm3-libs-master/i686-w64-mingw32/" -DDEDICATED=ON -DTOOLS=ON -S neo/ -B build
-        time cmake --build build/ --config RelWithDebInfo
+        cmake -A Win32 \
+          -DDHEWM3LIBS="../dhewm3-libs-master/i686-w64-mingw32/" \
+          -DOPENAL_INCLUDE_DIR="../OpenAL-SDK/include" \
+          -DOPENAL_LIBRARY="../OpenAL-SDK/libs/Win32/OpenAL32.lib" \
+          -DDEDICATED=ON -DTOOLS=ON \
+          -S neo/ -B build
+        cmake --build build/ --config RelWithDebInfo
+
     - name: Create testbuild package
       run: |
-        # Create release directory tree
         export PKGDIR="dhewm3-win32-$(git rev-parse --short HEAD)"
         echo "pkgname=$PKGDIR" >> $GITHUB_ENV
-        mkdir -p publish/$PKGDIR/base
-        mkdir publish/$PKGDIR/d3xp
-        # debug symbols (*.pdb) are put in a separate zip
-        mkdir -p debug-syms/$PKGDIR
-        # Copy release assets
+        mkdir -p publish/$PKGDIR/base publish/$PKGDIR/d3xp debug-syms/$PKGDIR
+
         cd build/RelWithDebInfo
         cp dhewm3.exe dhewm3ded.exe base.dll d3xp.dll ../../publish/$PKGDIR/
         cp -r *.pdb ../../debug-syms/$PKGDIR/
         cd ../..
-        # Copy misc assets
+
         cp base/gamepad.cfg publish/$PKGDIR/base/
         cp base/gamepad-d3xp.cfg publish/$PKGDIR/d3xp/
         cp COPYING.txt publish/$PKGDIR/
@@ -69,88 +61,83 @@ jobs:
         cat README.md >> publish/$PKGDIR/README.txt
         cp Changelog.md publish/$PKGDIR/Changelog.txt
         cp Configuration.md publish/$PKGDIR/Configuration.txt
-        # copy runtime libraries (SDL, OpenAL, cURL)
-        cd ../dhewm3-libs-master/i686-w64-mingw32/bin/
-        cp OpenAL32.dll SDL2.dll libcurl-4.dll ../../../dhewm3/publish/$PKGDIR/
-        cd -
+
+        # Copy runtime DLLs
+        cp ../dhewm3-libs-master/i686-w64-mingw32/bin/OpenAL32.dll ../dhewm3-libs-master/i686-w64-mingw32/bin/SDL2.dll ../dhewm3-libs-master/i686-w64-mingw32/bin/libcurl-4.dll publish/$PKGDIR/
+
     - name: Upload testbuild package
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.pkgname }}
         path: publish/
         if-no-files-found: error
+
     - name: Upload testbuild debug symbols
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.pkgname }}-debugsyms
         path: debug-syms/
         if-no-files-found: error
+
   build_win_x86_64_msvc:
     runs-on: windows-latest
     defaults:
       run:
-        # use git bash for for all steps (unless specified otherwise per step)
         shell: bash
-    strategy:
-      fail-fast: false
     steps:
     - name: Install build dependencies
       run: |
-        # Download and extract dhewm3-libs
-        #echo $PWD # /d/a/dhewm3/dhewm3
-        # as the repo will be cloned into the directory we're currently in (O_o)
-        # go one directory up to D:\a\dhewm3\ and put the dhewm3libs there
         cd ..
-        # https://github.com/dhewm/dhewm3-libs/archive/refs/heads/master.zip
-        # for some reason the following downloads an empty file, so use the other URL I got from
-        # "Copy Download Link" in Firefox (after downloading the file there) instead
-        #curl -o dhewm3libs.zip https://github.com/dhewm/dhewm3-libs/archive/refs/heads/master.zip
-        curl -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
-        # only unpack the stuff needed (no i686 stuff, no docs from share/)
+        curl -L -o dhewm3libs.zip https://codeload.github.com/dhewm/dhewm3-libs/zip/refs/heads/master
         unzip dhewm3libs.zip "dhewm3-libs-master/x86_64-w64-mingw32/**" -x "dhewm3-libs-master/x86_64-w64-mingw32/share/**"
+
+        # Download and extract OpenAL SDK
+        curl -L -o OpenALSDK.zip https://openal.org/downloads/OpenAL11SDK.zip
+        unzip OpenALSDK.zip -d OpenAL-SDK
+
     - name: Check out repository code
       uses: actions/checkout@v4
+
     - name: Build
       run: |
-        # build with cmake and visual studio
-        #echo $PWD # /d/a/dhewm3/dhewm3
-        # NOTE: not setting -G "Visual Studio 17 2022" so it just uses the default VS version it can find
-        cmake -A x64 -DDHEWM3LIBS="../dhewm3-libs-master/x86_64-w64-mingw32/" -DDEDICATED=ON -DTOOLS=ON -S neo/ -B build
-        time cmake --build build/ --config RelWithDebInfo
+        cmake -A x64 \
+          -DDHEWM3LIBS="../dhewm3-libs-master/x86_64-w64-mingw32/" \
+          -DOPENAL_INCLUDE_DIR="../OpenAL-SDK/include" \
+          -DOPENAL_LIBRARY="../OpenAL-SDK/libs/Win64/OpenAL32.lib" \
+          -DDEDICATED=ON -DTOOLS=ON \
+          -S neo/ -B build
+        cmake --build build/ --config RelWithDebInfo
+
     - name: Create testbuild package
       run: |
-        # Create release directory tree
         export PKGDIR="dhewm3-win64-$(git rev-parse --short HEAD)"
         echo "pkgname=$PKGDIR" >> $GITHUB_ENV
-        #echo "PKGDIR is $PKGDIR"
-        mkdir -p publish/$PKGDIR/base
-        mkdir publish/$PKGDIR/d3xp
-        # debug symbols (*.pdb) are put in a separate zip
-        mkdir -p debug-syms/$PKGDIR
-        # Copy release assets
+        mkdir -p publish/$PKGDIR/base publish/$PKGDIR/d3xp debug-syms/$PKGDIR
+
         cd build/RelWithDebInfo
         cp dhewm3.exe dhewm3ded.exe base.dll d3xp.dll ../../publish/$PKGDIR/
         cp -r *.pdb ../../debug-syms/$PKGDIR/
         cd ../..
-        # Copy misc assets
+
         cp base/gamepad.cfg publish/$PKGDIR/base/
         cp base/gamepad-d3xp.cfg publish/$PKGDIR/d3xp/
         cp COPYING.txt publish/$PKGDIR/
-        echo "dhewm3 for 64bit (amd64 aka x86_64 aka x64) Windows, built $(date)" > publish/$PKGDIR/README.txt
+        echo "dhewm3 for 64bit (x86_64) Windows, built $(date)" > publish/$PKGDIR/README.txt
         echo -e "from ${{ github.ref_name }} commit ${{ github.sha }}\n" >> publish/$PKGDIR/README.txt
         cat README.md >> publish/$PKGDIR/README.txt
         cp Changelog.md publish/$PKGDIR/Changelog.txt
         cp Configuration.md publish/$PKGDIR/Configuration.txt
-        # copy runtime libraries (SDL, OpenAL, cURL)
-        cd ../dhewm3-libs-master/x86_64-w64-mingw32/bin/
-        cp OpenAL32.dll SDL2.dll libcurl-4.dll ../../../dhewm3/publish/$PKGDIR/
-        cd -
+
+        # Copy runtime DLLs
+        cp ../dhewm3-libs-master/x86_64-w64-mingw32/bin/OpenAL32.dll ../dhewm3-libs-master/x86_64-w64-mingw32/bin/SDL2.dll ../dhewm3-libs-master/x86_64-w64-mingw32/bin/libcurl-4.dll publish/$PKGDIR/
+
     - name: Upload testbuild package
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.pkgname }}
         path: publish/
         if-no-files-found: error
+
     - name: Upload testbuild debug symbols
       uses: actions/upload-artifact@v4
       with:
