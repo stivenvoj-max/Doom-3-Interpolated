@@ -1,6 +1,5 @@
 name: Build Doom 3 Interpolated (Windows)
 
-# Trigger manually
 on:
   workflow_dispatch:
 
@@ -9,25 +8,20 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # Step 1: Get the code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Create a build folder
       - name: Create build directory
         run: mkdir build
 
-      # Step 3: Configure CMake (disable OpenAL)
       - name: Configure
         working-directory: build
-        run: cmake -G "Visual Studio 17 2022" -A x64 -DD3_USE_OPENAL=OFF ../neo
+        run: cmake -G "Visual Studio 17 2022" -A x64 -DOPENAL_LIBRARY="" -DOPENAL_INCLUDE_DIR="" ../neo
 
-      # Step 4: Build the project
       - name: Build
         working-directory: build
         run: cmake --build . --config Release
 
-      # Step 5: Upload only the final binaries
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
